@@ -535,7 +535,7 @@ class Main_window(wx.Frame):
             names =[]
             self.loaded_datafiles += dlg.GetPaths()
             names = [os.path.split(path)[1] for path in self.loaded_datafiles]
-            self.log.WriteText('Imported %d file(s):' % len(names))
+            self.log.WriteText('Imported %d file(s):\n' % len(names))
             for name in names:
                 self.log.WriteText('           %s\n' % name)
         self.list_box_1.AppendItems(names)
@@ -544,6 +544,11 @@ class Main_window(wx.Frame):
         self.text_ctrl_final_file_num.SetValue(str(self.max_dataframe))
         
         dlg.Destroy()
+        #get an estimate for max 2theta by taking the maximum x value of the last dataset:
+        last_dataset = open_dat(self.loaded_datafiles[-1])
+        max_2theta = float(max([i[0] for i in last_dataset]))
+        self.text_ctrl_max_2theta.SetValue(str(max_2theta))
+
 
     def file_highlight(self, event):  # need to know what files get selected
         name_index = self.list_box_1.GetSelection()
@@ -750,6 +755,7 @@ class Main_window(wx.Frame):
         out_file = "seq_backup.csv"
         self.log.WriteText("Created backup file: seq_backup.csv"+"\n")
         with open(out_file, mode = "w") as file:
+            file.write("Filepath, Lattice parameters\n")
             file.close()
     #list of datafiles:
         framelist = self.loaded_datafiles
@@ -779,7 +785,8 @@ class Main_window(wx.Frame):
             upper_bounds = [np.inf for i in LS_params]
             bounds = Bounds(lb = lower_bounds, ub = upper_bounds)
             #do the LS
-            LS_out = do_fit(fit_function, 
+            try:
+                LS_out = do_fit(fit_function, 
                                     LS_params, 
                                     bounds, 
                                     self.SG_num, 
@@ -788,6 +795,9 @@ class Main_window(wx.Frame):
                                     frame, 
                                     int(self.fit_window_size), 
                                     num_peaks)
+            except:
+                self.log.WriteText("==== ERROR IN LEAST SQUARES ====\n")
+                break
             #redefine LS_params for next fit, conviently assign gaussians and lattice:
             if LS_params == list(LS_out.x):#LS minimiser has stopped working
                 #originally was a function here to add some random noise to the LS parameters
@@ -841,7 +851,6 @@ class Main_window(wx.Frame):
             self.refined_datasets.append(out_data_object)
             #write to backup file
             with open(out_file, mode = "a") as file:
-                file.write("Filepath, Lattice parameters\n")
                 lattice_write = [i for i in LS_out.x[num_peaks*3:]]
                 file.write(str(frame)+",")
                 for i in lattice_write:
@@ -850,7 +859,7 @@ class Main_window(wx.Frame):
                 file.close()
             PVT_table_list = [os.path.split(frame)[1], out_volume, "",""]
             counter += 1
-            print(str(counter)+" dataset fit")
+            print("dataset "+str(counter)+" fit")
             #update GUI
             self.gauge_1.SetValue(counter)
             self.PVT_table.Append(PVT_table_list)
@@ -927,7 +936,7 @@ class Main_window(wx.Frame):
             #update GUI
             P_out = PVT_object_out.P
             T_out = PVT_object_out.T
-            self.log.WriteText("For datafile:"+str(item)+"P,T of "+str(P_out)+", "+str(T_out)+"\n")
+            self.log.WriteText("For datafile: "+str(item)+" P,T of "+str(P_out)+" GPa, "+str(T_out)+" K\n")
             self.PVT_table.SetItem(index =  i, column = 2, label = str(P_out))
             self.PVT_table.SetItem(index =  i, column = 3, label = str(T_out))
             #write PT values to dictionary: (Vs already set from LS)
@@ -1018,7 +1027,9 @@ class Main_window(wx.Frame):
                 file.write(str(i)+",")
             file.write("\n")#new line after header
             for dictionary in self.refined_datasets:
-                file.write(str(list(dictionary.values()))+"\n")#not sure how this will hold up if no PVT is done, should be ok
+                for value in list(dictionary.values()):
+                    file.write(str(value)+",")
+                file.write("\n")
             file.close()
         self.log.WriteText("Saved file: "+str(path))
         
