@@ -3,8 +3,8 @@
 ## 1. Overview
 
 
-This program is designed to perform Le-Bail fits on a large number of sequential X-ray diffractograms in order to determine until cell parameters and volume.
-The primary use case is the determination of unit cell volume of a pressure/temperature calibrant across many in-situ X-ray diffraction datasets via sequential Le-Bail fitting.
+This program is designed to perform Le-Bail fits on a large number of sequential X-ray diffractograms in order to determine unit cell parameters and volume.
+The primary use case is the determination of unit cell volume of a pressure/temperature calibrant.
 This provides a quick and efficient method for determination of pressure and temperature conditions from the equation of state of the calibrant phase.
 The program uses a BM EoS function to determine P and T from the refined crystallographic volume of the calibrant phase. Built-in EoS parameters are provided for common calibrants or may be input by the user, or read from appropriate JCPDS files (not yet implemented).  
   
