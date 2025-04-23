@@ -1,4 +1,4 @@
-# PTSeqFit - Pressure, Temperature from Sequential Fits
+# PTSFit - Pressure, Temperature from Sequential Fits
   
 ## 1. Overview
 
