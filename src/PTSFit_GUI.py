@@ -12,7 +12,7 @@ from threading import Thread
 from scipy.optimize import least_squares, Bounds
 from xrayutilities.materials.spacegrouplattice import sgrp_name
 import EoS_dictionaries as EoS
-from PVT import PVT
+from PVT import BM
 import matplotlib
 matplotlib.use('WXAgg')
 #from matplotlib.figure import Figure
@@ -208,8 +208,10 @@ class Main_window(wx.Frame):
     def __init__(self, *args, **kwds):
         kwds["style"] = kwds.get("style", 0) | wx.DEFAULT_FRAME_STYLE
         wx.Frame.__init__(self, *args, **kwds)
-        self.SetTitle("PTSeqFit - Pressure, Temperature from Sequential Fits")
-
+        self.SetTitle("PTSFit - Pressure, Temperature from Sequential Fits")
+        icon = wx.EmptyIcon()
+        icon.CopyFromBitmap(wx.Bitmap("icon.ico", wx.BITMAP_TYPE_ANY))
+        self.SetIcon(icon)
         self.panel_1 = wx.Panel(self, wx.ID_ANY)
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -226,10 +228,10 @@ class Main_window(wx.Frame):
         sizer_34 = wx.BoxSizer(wx.HORIZONTAL)
         sizer_30.Add(sizer_34, 0, wx.EXPAND, 0)
 
-        self.button_open_calib = wx.Button(self.panel_1, wx.ID_ANY, "Open Calibration File", style=wx.BU_EXACTFIT)
+        self.button_open_calib = wx.Button(self.panel_1, wx.ID_ANY, "Open calibration file", style=wx.BU_EXACTFIT)
         sizer_34.Add(self.button_open_calib, 0, wx.EXPAND, 0)
 
-        label_18 = wx.StaticText(self.panel_1, wx.ID_ANY, u"Or, specify wavelength (Å):")
+        label_18 = wx.StaticText(self.panel_1, wx.ID_ANY, u" or, specify wavelength (Å):")
         sizer_34.Add(label_18, 0, wx.ALIGN_CENTER_VERTICAL, 0)
 
         self.text_ctrl_wavelength = wx.TextCtrl(self.panel_1, wx.ID_ANY, "")
@@ -452,12 +454,14 @@ class Main_window(wx.Frame):
         self.Bind(wx.EVT_LISTBOX, self.file_highlight, self.list_box_1)
         self.Bind(wx.EVT_BUTTON, self.datafile_plot, self.button_plot_datafile)
         self.Bind(wx.EVT_BUTTON, self.open_cif, self.button_open_cif)
+
         self.Bind(wx.EVT_TEXT, self.SG_input, self.text_ctrl_SG_num)
         self.Bind(wx.EVT_TEXT, self.a_input, self.text_ctrl_a)
         self.Bind(wx.EVT_TEXT, self.alpha_input, self.text_ctrl_alpha)
         self.Bind(wx.EVT_TEXT, self.b_input, self.text_ctrl_b)
         self.Bind(wx.EVT_TEXT, self.beta_input, self.text_ctrl_beta)
         self.Bind(wx.EVT_TEXT, self.c_input, self.text_ctrl_c)
+
         self.Bind(wx.EVT_TEXT, self.gamma_input, self.text_ctrl_gamma)
         self.Bind(wx.EVT_TEXT, self.scale_input, self.text_ctrl_scale)
         self.Bind(wx.EVT_TEXT, self.sigma_input, self.text_ctrl_sigma)
@@ -479,7 +483,8 @@ class Main_window(wx.Frame):
         self.loaded_calibrant = None
         self.loaded_calibrant_dicts = EoS.dictionaries
         self.gaussian_params = [0,0,0]
-        self.lattice_params = [None,None,None,None,None,None]
+        self.SG_num = None
+        self.lattice_params = ["","","","","",""]
         self.loaded_datafiles = []
         self.selected_datafile = None
         self.max_2theta = None
@@ -494,7 +499,10 @@ class Main_window(wx.Frame):
         return True
     
     def wavelength_input(self, event):#if user inputs wavelength
-        self.wavelength = float(self.text_ctrl_wavelength.GetValue())
+        try:
+            self.wavelength = float(self.text_ctrl_wavelength.GetValue())
+        except ValueError:
+            return None
         
     def open_calibration(self, event):#open a .poni
         wildcard = "poni file (*.poni)|*.poni|"     \
@@ -511,12 +519,15 @@ class Main_window(wx.Frame):
             )
         if dlg.ShowModal() == wx.ID_OK:
             self.loaded_poni = dlg.GetPaths()[0]
+            self.wavelength = poni2wave(self.loaded_poni)
+            self.text_ctrl_wavelength.SetValue(str(self.wavelength))
+            self.log.WriteText('Wavelength from calibration file = ' + str(self.wavelength)+u" Å"+"\n")
+        else:
+            self.log.WriteText("Please select a valid file")
             
         dlg.Destroy()
         #update GUI and class variable
-        self.wavelength = poni2wave(self.loaded_poni)
-        self.text_ctrl_wavelength.SetValue(str(self.wavelength))
-        self.log.WriteText('Wavelength from calibration file = ' + str(self.wavelength)+u" Å"+"\n")
+        
         
     def open_datafiles(self, event):  #opening datafiles
         wildcard = "Dioptas dat file (*.dat)|*.dat|"     \
@@ -538,16 +549,16 @@ class Main_window(wx.Frame):
             self.log.WriteText('Imported %d file(s):\n' % len(names))
             for name in names:
                 self.log.WriteText('           %s\n' % name)
-        self.list_box_1.AppendItems(names)
-        self.initial_datafile = self.loaded_datafiles[0]
-        self.max_dataframe = len(self.loaded_datafiles)
-        self.text_ctrl_final_file_num.SetValue(str(self.max_dataframe))
+            self.list_box_1.AppendItems(names)
+            self.max_dataframe = len(self.loaded_datafiles)
+            self.text_ctrl_final_file_num.SetValue(str(self.max_dataframe))
+            last_dataset = open_dat(self.loaded_datafiles[-1])
+            max_2theta = float(max([i[0] for i in last_dataset]))
+            self.text_ctrl_max_2theta.SetValue(str(max_2theta))
         
         dlg.Destroy()
         #get an estimate for max 2theta by taking the maximum x value of the last dataset:
-        last_dataset = open_dat(self.loaded_datafiles[-1])
-        max_2theta = float(max([i[0] for i in last_dataset]))
-        self.text_ctrl_max_2theta.SetValue(str(max_2theta))
+        
 
 
     def file_highlight(self, event):  # need to know what files get selected
@@ -583,83 +594,102 @@ class Main_window(wx.Frame):
         if dlg.ShowModal() == wx.ID_OK:
             self.loaded_cif = dlg.GetPaths()
             self.log.WriteText('Imported .cif: ' + str(self.loaded_cif[0])+"\n")
+            material, self.SGLattice_object = cif2material(self.loaded_cif[0])
+            self.SG_num, self.lattice_params = SG_lattice_object_read(self.SGLattice_object)
+            self.text_ctrl_SG_num.SetValue(str(self.SG_num))#this triggers the event associated with this GUI element
         dlg.Destroy()
-        material, self.SGLattice_object = cif2material(self.loaded_cif[0])
-        self.SG_num, self.lattice_params = SG_lattice_object_read(self.SGLattice_object)
-        self.text_ctrl_SG_num.SetValue(str(self.SG_num))
-        self.update_lattice_params()
+        
         
     def update_lattice_params(self):#just following some crystallography rules
-        if self.SG_num <= 230 and self.SG_num > 194:#cubic
-            self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
-            self.text_ctrl_b.SetValue(str(self.lattice_params[0]))
-            self.text_ctrl_c.SetValue(str(self.lattice_params[0]))
-            self.text_ctrl_alpha.SetValue(str(90))
-            self.text_ctrl_beta.SetValue(str(90))
-            self.text_ctrl_gamma.SetValue(str(90))
-        if self.SG_num < 195 and self.SG_num > 74:#hexagonal,trigonal,tetragonal,
-            self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
-            self.text_ctrl_b.SetValue(str(self.lattice_params[0]))
-            self.text_ctrl_c.SetValue(str(self.lattice_params[1]))
-            self.text_ctrl_alpha.SetValue(str(90))
-            self.text_ctrl_beta.SetValue(str(120))
-            self.text_ctrl_gamma.SetValue(str(90))
-        if self.SG_num < 75 and self.SG_num > 15:#ortho
-            self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
-            self.text_ctrl_b.SetValue(str(self.lattice_params[1]))
-            self.text_ctrl_c.SetValue(str(self.lattice_params[2]))
-            self.text_ctrl_alpha.SetValue(str(90))
-            self.text_ctrl_beta.SetValue(str(90))
-            self.text_ctrl_gamma.SetValue(str(90))
-        if self.SG_num < 16 and self.SG_num > 2:#mono
-            self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
-            self.text_ctrl_b.SetValue(str(self.lattice_params[1]))
-            self.text_ctrl_c.SetValue(str(self.lattice_params[2]))
-            self.text_ctrl_alpha.SetValue(str(90))
-            self.text_ctrl_beta.SetValue(str(self.lattice_params[3]))
-            self.text_ctrl_gamma.SetValue(str(90))
-        if self.SG_num < 3:#triclinic
-            self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
-            self.text_ctrl_b.SetValue(str(self.lattice_params[1]))
-            self.text_ctrl_c.SetValue(str(self.lattice_params[2]))
-            self.text_ctrl_alpha.SetValue(str(self.lattice_params[3]))
-            self.text_ctrl_beta.SetValue(str(self.lattice_params[4]))
-            self.text_ctrl_gamma.SetValue(str(self.lattice_params[5]))
+        try:
+            if self.SG_num <= 230 and self.SG_num > 194:#cubic
+                self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_b.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_c.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_alpha.SetValue(str(90))
+                self.text_ctrl_beta.SetValue(str(90))
+                self.text_ctrl_gamma.SetValue(str(90))
+            if self.SG_num < 195 and self.SG_num > 142:#hexagonal,trigonal,,
+                self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_b.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_c.SetValue(str(self.lattice_params[1]))
+                self.text_ctrl_alpha.SetValue(str(90))
+                self.text_ctrl_beta.SetValue(str(90))
+                self.text_ctrl_gamma.SetValue(str(120))
+            if self.SG_num < 143 and self.SG_num > 74:#tetragonal
+                self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_b.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_c.SetValue(str(self.lattice_params[1]))
+                self.text_ctrl_alpha.SetValue(str(90))
+                self.text_ctrl_beta.SetValue(str(90))
+                self.text_ctrl_gamma.SetValue(str(90))
+            if self.SG_num < 75 and self.SG_num > 15:#ortho
+                self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_b.SetValue(str(self.lattice_params[1]))
+                self.text_ctrl_c.SetValue(str(self.lattice_params[2]))
+                self.text_ctrl_alpha.SetValue(str(90))
+                self.text_ctrl_beta.SetValue(str(90))
+                self.text_ctrl_gamma.SetValue(str(90))
+            if self.SG_num < 16 and self.SG_num > 2:#mono
+                self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_b.SetValue(str(self.lattice_params[1]))
+                self.text_ctrl_c.SetValue(str(self.lattice_params[2]))
+                self.text_ctrl_alpha.SetValue(str(90))
+                self.text_ctrl_beta.SetValue(str(self.lattice_params[3]))
+                self.text_ctrl_gamma.SetValue(str(90))
+            if self.SG_num < 3:#triclinic
+                self.text_ctrl_a.SetValue(str(self.lattice_params[0]))
+                self.text_ctrl_b.SetValue(str(self.lattice_params[1]))
+                self.text_ctrl_c.SetValue(str(self.lattice_params[2]))
+                self.text_ctrl_alpha.SetValue(str(self.lattice_params[3]))
+                self.text_ctrl_beta.SetValue(str(self.lattice_params[4]))
+                self.text_ctrl_gamma.SetValue(str(self.lattice_params[5]))
+        except TypeError:
+            pass
         
             
     def read_lattice(self):#creates a lattice parameter list from the GUI
     #as these are passed to xu's materials object as args the lists should be of variable length based on crystallography
-        if self.SG_num <= 230 and self.SG_num > 194:#cubic
-            lattice_params = [float(self.text_ctrl_a.GetValue())
+        try:
+            if self.SG_num <= 230 and self.SG_num > 194:#cubic
+                lattice_params = [float(self.text_ctrl_a.GetValue())
                               ]
-        if self.SG_num < 195 and self.SG_num > 74:#hexagonal,trigonal,tetragonal,
-            lattice_params = [float(self.text_ctrl_a.GetValue()),
+            if self.SG_num < 195 and self.SG_num > 74:#hexagonal,trigonal,tetragonal,
+                lattice_params = [float(self.text_ctrl_a.GetValue()),
                               float(self.text_ctrl_c.GetValue())
                               ]
-        if self.SG_num < 75 and self.SG_num > 15:#ortho
-            lattice_params = [float(self.text_ctrl_a.GetValue()),
+            if self.SG_num < 75 and self.SG_num > 15:#ortho
+                lattice_params = [float(self.text_ctrl_a.GetValue()),
                               float(self.text_ctrl_b.GetValue()),
                               float(self.text_ctrl_c.GetValue())
                               ]
-        if self.SG_num < 16 and self.SG_num > 2:#mono
-            lattice_params = [float(self.text_ctrl_a.GetValue()),
+            if self.SG_num < 16 and self.SG_num > 2:#mono
+                lattice_params = [float(self.text_ctrl_a.GetValue()),
                               float(self.text_ctrl_b.GetValue()),
                               float(self.text_ctrl_c.GetValue()),
                               float(self.text_ctrl_beta.GetValue())
                               ]
-        if self.SG_num < 3:#triclinic
-            lattice_params = [float(self.text_ctrl_a.GetValue()),
+            if self.SG_num < 3:#triclinic
+                lattice_params = [float(self.text_ctrl_a.GetValue()),
                               float(self.text_ctrl_b.GetValue()),
                               float(self.text_ctrl_c.GetValue()),
                               float(self.text_ctrl_beta.GetValue()),
                               float(self.text_ctrl_beta.GetValue()),
                               float(self.text_ctrl_beta.GetValue())
                               ]
-        return lattice_params
+            return lattice_params
+        except ValueError:
+            pass
         
     def SG_input(self, event):  # disables/enables GUI elements based on symmetry
-        self.SG_num = int(self.text_ctrl_SG_num.GetValue())
-        self.update_lattice_params()
+        try:
+            self.SG_num = int(self.text_ctrl_SG_num.GetValue())
+        except:
+            self.log.WriteText("Please enter a valid space group number\n")
+            return None
+        if self.SG_num > 230 or self.SG_num < 1:
+            self.log.WriteText("Entered space group number of "+str(self.SG_num) + " is invalid\n")
+            return None
         if self.SG_num <= 230 and self.SG_num > 194:#cubic
             self.text_ctrl_a.SetEditable(True)
             self.text_ctrl_b.SetEditable(False)
@@ -667,7 +697,14 @@ class Main_window(wx.Frame):
             self.text_ctrl_alpha.SetEditable(False)
             self.text_ctrl_beta.SetEditable(False)
             self.text_ctrl_gamma.SetEditable(False)
-        if self.SG_num < 195 and self.SG_num > 74:#hexagonal,trigonal,tetragonal,
+        if self.SG_num < 195 and self.SG_num > 142:#hexagonal,trigonal
+            self.text_ctrl_a.SetEditable(True)
+            self.text_ctrl_b.SetEditable(False)
+            self.text_ctrl_c.SetEditable(True)
+            self.text_ctrl_alpha.SetEditable(False)
+            self.text_ctrl_beta.SetEditable(False)
+            self.text_ctrl_gamma.SetEditable(False)
+        if self.SG_num < 143 and self.SG_num > 74:#tetragonal
             self.text_ctrl_a.SetEditable(True)
             self.text_ctrl_b.SetEditable(False)
             self.text_ctrl_c.SetEditable(True)
@@ -695,10 +732,10 @@ class Main_window(wx.Frame):
             self.text_ctrl_alpha.SetEditable(True)
             self.text_ctrl_beta.SetEditable(True)
             self.text_ctrl_gamma.SetEditable(True)
-        if self.SG_num > 230:
-            self.log.WriteText("Entered space group number of "+str(self.SG_num) + " is invalid\n")
+        
         self.SG_name = sgrp_name[str(self.SG_num)]
         self.label_SG_name.SetLabel(str(self.SG_name))
+        self.update_lattice_params()
 
     def a_input(self, event):  # wxGlade: MyApp.<event_handler>
         if self.SG_num <= 230 and self.SG_num > 194:
@@ -726,22 +763,37 @@ class Main_window(wx.Frame):
         self.lattice_params = self.read_lattice()
 
     def scale_input(self, event):  # wxGlade: MyApp.<event_handler>
-        self.gaussian_params[0] = float(self.text_ctrl_scale.GetValue())
-#similar but for the gaussian params
+        try:
+            self.gaussian_params[0] = float(self.text_ctrl_scale.GetValue())
+        except ValueError:
+            self.log.WriteText("Enter a number\n")
     def sigma_input(self, event):  # wxGlade: MyApp.<event_handler>
-        self.gaussian_params[1] = float(self.text_ctrl_sigma.GetValue())
-
+        try:
+            self.gaussian_params[1] = float(self.text_ctrl_sigma.GetValue())
+        except ValueError:
+            self.log.WriteText("Enter a number\n")
     def shift_input(self, event):  # wxGlade: MyApp.<event_handler>
-        self.gaussian_params[2] = float(self.text_ctrl_shift.GetValue())
-        
+        try:
+            self.gaussian_params[2] = float(self.text_ctrl_shift.GetValue())
+        except ValueError:
+            self.log.WriteText("Enter a number\n")
     def input_max_ttheta(self, event):  # wxGlade: MyApp.<event_handler>
-        self.max_2theta = float(self.text_ctrl_max_2theta.GetValue())
-
+        try:
+            self.max_2theta = float(self.text_ctrl_max_2theta.GetValue())
+        except ValueError:
+            self.log.WriteText("Enter a number\n")
     def fit_final_num_in(self, event):  # wxGlade: MyApp.<event_handler>
-        self.max_dataframe = int(self.text_ctrl_final_file_num.GetValue())
+        try:
+            self.max_dataframe = int(self.text_ctrl_final_file_num.GetValue())
+        except ValueError:
+            self.log.WriteText("Enter a number\n")
         
     def theta_variance2datapoints(self, event): #estimates number of data points which makes up the 2theta variance entered in the GUI
-        window_2theta = float(self.text_ctrl_variance.GetValue())#read the GUI input
+        try:
+            window_2theta = float(self.text_ctrl_variance.GetValue())#read the GUI input
+        except ValueError:
+            self.log.WriteText("Enter a number\n")
+            return None
         data_frame = open_dat(self.loaded_datafiles[0])#load in 1st dataset [[x,y],[x,y]....]
         x_values = [i[0] for i in data_frame]
         data_start = x_values[0]#1st x-value
@@ -751,31 +803,47 @@ class Main_window(wx.Frame):
         self.fit_window_size = window_datapoints
          
     def do_seq_fit(self, event):  # the sequential fitting loop
-    #make a backup file:
-        out_file = "seq_backup.csv"
-        self.log.WriteText("Created backup file: seq_backup.csv"+"\n")
-        with open(out_file, mode = "w") as file:
-            file.write("Filepath, Lattice parameters\n")
-            file.close()
+    
     #list of datafiles:
         framelist = self.loaded_datafiles
+        if framelist ==[]:
+            self.log.WriteText("No datafiles loaded\n")
+            return None
         self.gauge_1.SetRange(len(framelist))
         counter = int(0)
     #do indexing in order to determine number of peaks which is needed to create list of gaussians:
         #create local variable of lattice_params
         lattice_params = self.lattice_params
+        if lattice_params == None or any(v == None or v == '' for v in lattice_params) or self.SG_num == False or self.SG_num == None:
+            self.log.WriteText("Missing crystallographic parameters\n")
+            return None
         #create material object from lattice params, SGLatiice object is not used here
         material, SGLattice_object = SG_lattice_params2material(int(self.SG_num), lattice_params)
         #indexing info is a dictionary of peaks, needs a material object
+        if self.wavelength == None:
+            self.log.WriteText("Missing wavelength\n")
+            return None
         indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = self.max_2theta, enable_simulation = False, wl = self.wavelength).data
         num_peaks = len(indexing_info.keys())
     #convert the self.gaussian_params object (which is just a list of scale, sigma, shift)
     #into a list of [scale, scale,... sigma, sigma,...  shift, shift,... per number of peaks]
         raw_gaussian_params = self.gaussian_params
+        if any(g == 0  for g in raw_gaussian_params):
+            self.log.WriteText("Missing, or zero value gaussian parameters\n")
+            return None
+        if self.fit_window_size == 0:
+            self.log.WriteText("Fit window not specified\n")
+            return None
         amps = [raw_gaussian_params[0]] * num_peaks
         sigmas = [raw_gaussian_params[1]] * num_peaks
         shifts = [raw_gaussian_params[2]] * num_peaks
         gaussian_params = amps + sigmas + shifts
+        #make a backup file:
+        out_file = "seq_backup.csv"
+        self.log.WriteText("Created backup file: seq_backup.csv"+"\n")
+        with open(out_file, mode = "w") as file:
+            file.write("Filepath, Lattice parameters\n")
+            file.close()
         #now the cyclic mode starts
         for frame in framelist:
             LS_params = list(gaussian_params)
@@ -796,7 +864,7 @@ class Main_window(wx.Frame):
                                     int(self.fit_window_size), 
                                     num_peaks)
             except:
-                self.log.WriteText("==== ERROR IN LEAST SQUARES ====\n")
+                self.log.WriteText("==== ERROR IN LEAST SQUARES ====\nConsidering changing starting parameters, reducing maximum 2theta for indexing, or the fitting window\n")
                 break
             #redefine LS_params for next fit, conviently assign gaussians and lattice:
             if LS_params == list(LS_out.x):#LS minimiser has stopped working
@@ -925,6 +993,8 @@ class Main_window(wx.Frame):
             volume = [i["V (A^3)"] for i in self.refined_datasets if i["filename"] == item][0]
             pressure = [i["P (GPa)"] for i in self.refined_datasets if i["filename"] == item][0]
             temperature = [i["T (K)"] for i in self.refined_datasets if i["filename"] == item][0]
+            if pressure == None and temperature == None:
+                self.log.WriteText("Missing P or T for list object: "+str(item)+"\n")
             if pressure != None:
                 PVT_table[0] = float(pressure)
             if volume != None:
@@ -932,7 +1002,7 @@ class Main_window(wx.Frame):
             if temperature != None:
                 PVT_table[2] = float(temperature)
             #Do PVT calc
-            PVT_object_out = PVT(self.selected_EoS_dict, PVT_table)
+            PVT_object_out = BM(self.selected_EoS_dict, PVT_table)
             #update GUI
             P_out = PVT_object_out.P
             T_out = PVT_object_out.T
@@ -1020,18 +1090,17 @@ class Main_window(wx.Frame):
             )
         if dlg.ShowModal() == wx.ID_OK:
             path = dlg.GetPath()
+            with open(path, mode = "w") as file:
+                for i in list(self.refined_datasets[0].keys()):#creates a header from data dictionary
+                    file.write(str(i)+",")
+                file.write("\n")#new line after header
+                for dictionary in self.refined_datasets:
+                    for value in list(dictionary.values()):
+                        file.write(str(value)+",")
+                    file.write("\n")
+                file.close()
+            self.log.WriteText("Saved file: "+str(path))
         dlg.Destroy()
-        # file writing
-        with open(path, mode = "w") as file:
-            for i in list(self.refined_datasets[0].keys()):#creates a header from data dictionary
-                file.write(str(i)+",")
-            file.write("\n")#new line after header
-            for dictionary in self.refined_datasets:
-                for value in list(dictionary.values()):
-                    file.write(str(value)+",")
-                file.write("\n")
-            file.close()
-        self.log.WriteText("Saved file: "+str(path))
         
 class PopMenu(wx.Menu):
  #little menu that pops up when list is right-clicked
@@ -1334,24 +1403,24 @@ class EoSDialog(wx.Dialog):
         if self.loaded_calibrant in [i.get("name") for i in EoS.dictionaries]:
             self.label_7.SetLabel("Equation of State Parameters for "+str(self.loaded_calibrant))
             self.EoS_params = [i for i in EoS.dictionaries if self.loaded_calibrant == i.get("name")][0]
-            self.text_ctrl_Uo.SetValue(str(self.EoS_params.get("Uo")))
+            self.text_ctrl_Uo.SetValue(str(self.EoS_params.get("U_0")))
             self.text_ctrl_n.SetValue(str(self.EoS_params["n"]))
-            self.text_ctrl_Vo.SetValue(str(self.EoS_params["Vo"]))
-            self.text_ctrl_Ko.SetValue(str(self.EoS_params["Ko"]))
-            self.text_ctrl_kprime.SetValue(str(self.EoS_params["kk"]))
-            self.text_ctrl_QE1.SetValue(str(self.EoS_params["QE1"]))
-            self.text_ctrl_m1.SetValue(str(self.EoS_params["mE1"]))
-            self.text_ctrl_QE2.SetValue(str(self.EoS_params["QE2"]))
-            self.text_ctrl_m2.SetValue(str(self.EoS_params["mE2"]))
+            self.text_ctrl_Vo.SetValue(str(self.EoS_params["V_0"]))
+            self.text_ctrl_Ko.SetValue(str(self.EoS_params["K_0"]))
+            self.text_ctrl_kprime.SetValue(str(self.EoS_params["K_prime"]))
+            self.text_ctrl_QE1.SetValue(str(self.EoS_params["theta_1"]))
+            self.text_ctrl_m1.SetValue(str(self.EoS_params["Ein_1"]))
+            self.text_ctrl_QE2.SetValue(str(self.EoS_params["theta_2"]))
+            self.text_ctrl_m2.SetValue(str(self.EoS_params["Ein_2"]))
             self.text_ctrl_delta.SetValue(str(self.EoS_params["delta"]))
             self.text_ctrl_t.SetValue(str(self.EoS_params["t"]))
-            self.text_ctrl_ao.SetValue(str(self.EoS_params["ao"]))
-            self.text_ctrl_eo.SetValue(str(self.EoS_params["eo"]))
+            self.text_ctrl_ao.SetValue(str(self.EoS_params["a_0"]))
+            self.text_ctrl_eo.SetValue(str(self.EoS_params["e_0"]))
             self.text_ctrl_m.SetValue(str(self.EoS_params["m"]))
             self.text_ctrl_g.SetValue(str(self.EoS_params["g"]))
-            self.text_ctrl_co.SetValue(str(self.EoS_params["co"]))
-            self.text_ctrl_c2.SetValue(str(self.EoS_params["c2"]))
-            self.text_ctrl_To.SetValue(str(self.EoS_params["To"]))
+            self.text_ctrl_co.SetValue(str(self.EoS_params["c_0"]))
+            self.text_ctrl_c2.SetValue(str(self.EoS_params["c_2"]))
+            self.text_ctrl_To.SetValue(str(self.EoS_params["T_0"]))
             self.text_ctrl_Z.SetValue(str(self.EoS_params["Z"]))
             self.text_ctrl_Therm_alpha_298.SetValue(str(self.EoS_params["Therm_alpha_298"]))
             self.text_ctrl_Therm_diff_temp.SetValue(str(self.EoS_params["Therm_diff_temp"]))
@@ -1372,45 +1441,48 @@ class EoSDialog(wx.Dialog):
             )
         if dlg.ShowModal() == wx.ID_OK:
             path = dlg.GetPaths()[0]
+            with open(path, mode = "r") as file:
+                for line in file:
+                    file_buffer.append(line)
+                file.close()
+            keys = [i.split("=")[0] for i in file_buffer]
+            keys = [i.strip(" ") for i in keys]
+        
+            values = [i.split("=")[1] for i in file_buffer]
+            values = [i.strip("\n") for i in values]
+            values = [i.strip(" ")for i in values]
+            self.loaded_calibrant = values[0]
+        
+            self.EoS_params = dict(zip(keys, values))
+            self.label_7.SetLabel("Equation of State Parameters for "+str(self.loaded_calibrant))
+            self.text_ctrl_Uo.SetValue(str(self.EoS_params.get("U_0")))
+            self.text_ctrl_n.SetValue(str(self.EoS_params["n"]))
+            self.text_ctrl_Vo.SetValue(str(self.EoS_params["V_0"]))
+            self.text_ctrl_Ko.SetValue(str(self.EoS_params["K_0"]))
+            self.text_ctrl_kprime.SetValue(str(self.EoS_params["K_prime"]))
+            self.text_ctrl_QE1.SetValue(str(self.EoS_params["theta_1"]))
+            self.text_ctrl_m1.SetValue(str(self.EoS_params["Ein_1"]))
+            self.text_ctrl_QE2.SetValue(str(self.EoS_params["theta_2"]))
+            self.text_ctrl_m2.SetValue(str(self.EoS_params["Ein_2"]))
+            self.text_ctrl_delta.SetValue(str(self.EoS_params["delta"]))
+            self.text_ctrl_t.SetValue(str(self.EoS_params["t"]))
+            self.text_ctrl_ao.SetValue(str(self.EoS_params["a_0"]))
+            self.text_ctrl_eo.SetValue(str(self.EoS_params["e_0"]))
+            self.text_ctrl_m.SetValue(str(self.EoS_params["m"]))
+            self.text_ctrl_g.SetValue(str(self.EoS_params["g"]))
+            self.text_ctrl_co.SetValue(str(self.EoS_params["c_0"]))
+            self.text_ctrl_c2.SetValue(str(self.EoS_params["c_2"]))
+            self.text_ctrl_To.SetValue(str(self.EoS_params["T_0"]))
+            self.text_ctrl_Z.SetValue(str(self.EoS_params["Z"]))
+            self.text_ctrl_Therm_alpha_298.SetValue(str(self.EoS_params["Therm_alpha_298"]))
+            self.text_ctrl_Therm_diff_temp.SetValue(str(self.EoS_params["Therm_diff_temp"]))
+            self.text_ctrl_Therm_diff_alpha.SetValue(str(self.EoS_params["Therm_diff_alpha"]))
+            self.text_ctrl_Therm_diff_Kprime.SetValue(str(self.EoS_params["Therm_diff_Kprime"]))
+        else:
+            self.parent.log.Write("Please select a valid file")
         dlg.Destroy()
         file_buffer = []
-        with open(path, mode = "r") as file:
-            for line in file:
-                file_buffer.append(line)
-            file.close()
-        keys = [i.split("=")[0] for i in file_buffer]
-        keys = [i.strip(" ") for i in keys]
         
-        values = [i.split("=")[1] for i in file_buffer]
-        values = [i.strip("\n") for i in values]
-        values = [i.strip(" ")for i in values]
-        self.loaded_calibrant = values[0]
-        
-        self.EoS_params = dict(zip(keys, values))
-        self.label_7.SetLabel("Equation of State Parameters for "+str(self.loaded_calibrant))
-        self.text_ctrl_Uo.SetValue(str(self.EoS_params.get("Uo")))
-        self.text_ctrl_n.SetValue(str(self.EoS_params["n"]))
-        self.text_ctrl_Vo.SetValue(str(self.EoS_params["Vo"]))
-        self.text_ctrl_Ko.SetValue(str(self.EoS_params["Ko"]))
-        self.text_ctrl_kprime.SetValue(str(self.EoS_params["kk"]))
-        self.text_ctrl_QE1.SetValue(str(self.EoS_params["QE1"]))
-        self.text_ctrl_m1.SetValue(str(self.EoS_params["mE1"]))
-        self.text_ctrl_QE2.SetValue(str(self.EoS_params["QE2"]))
-        self.text_ctrl_m2.SetValue(str(self.EoS_params["mE2"]))
-        self.text_ctrl_delta.SetValue(str(self.EoS_params["delta"]))
-        self.text_ctrl_t.SetValue(str(self.EoS_params["t"]))
-        self.text_ctrl_ao.SetValue(str(self.EoS_params["ao"]))
-        self.text_ctrl_eo.SetValue(str(self.EoS_params["eo"]))
-        self.text_ctrl_m.SetValue(str(self.EoS_params["m"]))
-        self.text_ctrl_g.SetValue(str(self.EoS_params["g"]))
-        self.text_ctrl_co.SetValue(str(self.EoS_params["co"]))
-        self.text_ctrl_c2.SetValue(str(self.EoS_params["c2"]))
-        self.text_ctrl_To.SetValue(str(self.EoS_params["To"]))
-        self.text_ctrl_Z.SetValue(str(self.EoS_params["Z"]))
-        self.text_ctrl_Therm_alpha_298.SetValue(str(self.EoS_params["Therm_alpha_298"]))
-        self.text_ctrl_Therm_diff_temp.SetValue(str(self.EoS_params["Therm_diff_temp"]))
-        self.text_ctrl_Therm_diff_alpha.SetValue(str(self.EoS_params["Therm_diff_alpha"]))
-        self.text_ctrl_Therm_diff_Kprime.SetValue(str(self.EoS_params["Therm_diff_Kprime"]))
     
     def save(self, event):
         wildcard = "EoS file (*.eos)|*.eos|"     \
@@ -1422,57 +1494,58 @@ class EoSDialog(wx.Dialog):
             )
         if dlg.ShowModal() == wx.ID_OK:
             path = dlg.GetPath()
+            with open(path, mode = "w") as file:
+                file.write("name = "+str(os.path.split(path)[1].split(".")[0])+"\n")
+                file.write("U_0 = "+str(self.text_ctrl_Uo.GetValue())+"\n")
+                file.write("n = "+str(self.text_ctrl_n.GetValue())+"\n")
+                file.write("V_0 ="+str(self.text_ctrl_Vo.GetValue())+"\n")
+                file.write("K_0 = "+str(self.text_ctrl_Ko.GetValue())+"\n")
+                file.write("K_prime = "+str(self.text_ctrl_kprime.GetValue())+"\n")
+                file.write("theta_1 = "+str(self.text_ctrl_QE1.GetValue())+"\n")
+                file.write("Ein_1 = "+str(self.text_ctrl_m1.GetValue())+"\n")
+                file.write("theta_2 = "+str(self.text_ctrl_QE2.GetValue())+"\n")
+                file.write("Ein_2 = "+str(self.text_ctrl_m2.GetValue())+"\n")
+                file.write("delta = "+str(self.text_ctrl_delta.GetValue())+"\n")
+                file.write("t = "+str(self.text_ctrl_t.GetValue())+"\n")
+                file.write("a_0 = "+str(self.text_ctrl_ao.GetValue())+"\n")
+                file.write("e_0 = "+str(self.text_ctrl_eo.GetValue())+"\n")
+                file.write("m = "+str(self.text_ctrl_m.GetValue())+"\n")
+                file.write("g = "+str(self.text_ctrl_g.GetValue())+"\n")
+                file.write("c_0 = "+str(self.text_ctrl_co.GetValue())+"\n")
+                file.write("c_2 = "+str(self.text_ctrl_c2.GetValue())+"\n")
+                file.write("T_0 = "+str(self.text_ctrl_To.GetValue())+"\n")
+                file.write("Z = "+str(self.text_ctrl_Z.GetValue())+"\n")
+                file.write("Therm_alpha_298 = "+str(self.text_ctrl_Therm_alpha_298.GetValue())+"\n")
+                file.write("Therm_diff_temp = "+str(self.text_ctrl_Therm_diff_temp.GetValue())+"\n")
+                file.write("Therm_diff_alpha = "+str(self.text_ctrl_Therm_diff_alpha.GetValue())+"\n")
+                file.write("Therm_diff_Kprime = "+str(self.text_ctrl_Therm_diff_Kprime.GetValue())+"\n")
+                file.close()
         dlg.Destroy()
         
-        with open(path, mode = "w") as file:
-            file.write("name = "+str(os.path.split(path)[1].split(".")[0])+"\n")
-            file.write("Uo = "+str(self.text_ctrl_Uo.GetValue())+"\n")
-            file.write("n = "+str(self.text_ctrl_n.GetValue())+"\n")
-            file.write("Vo ="+str(self.text_ctrl_Vo.GetValue())+"\n")
-            file.write("Ko = "+str(self.text_ctrl_Ko.GetValue())+"\n")
-            file.write("kk = "+str(self.text_ctrl_kprime.GetValue())+"\n")
-            file.write("QE1 = "+str(self.text_ctrl_QE1.GetValue())+"\n")
-            file.write("mE1 = "+str(self.text_ctrl_m1.GetValue())+"\n")
-            file.write("QE2 = "+str(self.text_ctrl_QE2.GetValue())+"\n")
-            file.write("mE2 = "+str(self.text_ctrl_m2.GetValue())+"\n")
-            file.write("delta = "+str(self.text_ctrl_delta.GetValue())+"\n")
-            file.write("t = "+str(self.text_ctrl_t.GetValue())+"\n")
-            file.write("ao = "+str(self.text_ctrl_ao.GetValue())+"\n")
-            file.write("eo = "+str(self.text_ctrl_eo.GetValue())+"\n")
-            file.write("m = "+str(self.text_ctrl_m.GetValue())+"\n")
-            file.write("g = "+str(self.text_ctrl_g.GetValue())+"\n")
-            file.write("co = "+str(self.text_ctrl_co.GetValue())+"\n")
-            file.write("c2 = "+str(self.text_ctrl_c2.GetValue())+"\n")
-            file.write("To = "+str(self.text_ctrl_To.GetValue())+"\n")
-            file.write("Z = "+str(self.text_ctrl_Z.GetValue())+"\n")
-            file.write("Therm_alpha_298 = "+str(self.text_ctrl_Therm_alpha_298.GetValue())+"\n")
-            file.write("Therm_diff_temp = "+str(self.text_ctrl_Therm_diff_temp.GetValue())+"\n")
-            file.write("Therm_diff_alpha = "+str(self.text_ctrl_Therm_diff_alpha.GetValue())+"\n")
-            file.write("Therm_diff_Kprime = "+str(self.text_ctrl_Therm_diff_Kprime.GetValue())+"\n")
-            file.close()
+        
         
     def OK(self, event):
         self.parent.loaded_calibrant = self.loaded_calibrant
         self.EoS_params = {}
         self.EoS_params["name"] = self.loaded_calibrant
-        self.EoS_params["Uo"] = float(self.text_ctrl_Uo.GetValue())
+        self.EoS_params["U_0"] = float(self.text_ctrl_Uo.GetValue())
         self.EoS_params["n"] = float(self.text_ctrl_n.GetValue())
-        self.EoS_params["Vo"] = float(self.text_ctrl_Vo.GetValue())
-        self.EoS_params["Ko"] = float(self.text_ctrl_Ko.GetValue())
-        self.EoS_params["kk"] = float(self.text_ctrl_kprime.GetValue())
-        self.EoS_params["QE1"] = float(self.text_ctrl_QE1.GetValue())
-        self.EoS_params["mE1"] = float(self.text_ctrl_m1.GetValue())
-        self.EoS_params["QE2"] = float(self.text_ctrl_QE2.GetValue())
-        self.EoS_params["mE2"] = float(self.text_ctrl_m2.GetValue())
+        self.EoS_params["V_0"] = float(self.text_ctrl_Vo.GetValue())
+        self.EoS_params["K_0"] = float(self.text_ctrl_Ko.GetValue())
+        self.EoS_params["K_prime"] = float(self.text_ctrl_kprime.GetValue())
+        self.EoS_params["theta_1"] = float(self.text_ctrl_QE1.GetValue())
+        self.EoS_params["Ein_1"] = float(self.text_ctrl_m1.GetValue())
+        self.EoS_params["theta_2"] = float(self.text_ctrl_QE2.GetValue())
+        self.EoS_params["Ein_2"] = float(self.text_ctrl_m2.GetValue())
         self.EoS_params["delta"] = float(self.text_ctrl_delta.GetValue())
         self.EoS_params["t"] = float(self.text_ctrl_t.GetValue())
-        self.EoS_params["ao"] = float(self.text_ctrl_ao.GetValue())
-        self.EoS_params["eo"] = float(self.text_ctrl_eo.GetValue())
+        self.EoS_params["a_0"] = float(self.text_ctrl_ao.GetValue())
+        self.EoS_params["e_0"] = float(self.text_ctrl_eo.GetValue())
         self.EoS_params["m"] = float(self.text_ctrl_m.GetValue())
         self.EoS_params["g"] = float(self.text_ctrl_g.GetValue())
-        self.EoS_params["co"] = float(self.text_ctrl_co.GetValue())
-        self.EoS_params["c2"] = float(self.text_ctrl_c2.GetValue())
-        self.EoS_params["To"] = float(self.text_ctrl_To.GetValue())
+        self.EoS_params["c_0"] = float(self.text_ctrl_co.GetValue())
+        self.EoS_params["c_2"] = float(self.text_ctrl_c2.GetValue())
+        self.EoS_params["T_0"] = float(self.text_ctrl_To.GetValue())
         self.EoS_params["Z"] = float(self.text_ctrl_Z.GetValue())
         self.EoS_params["Therm_alpha_298"] = float(self.text_ctrl_Therm_alpha_298.GetValue())
         self.EoS_params["Therm_diff_temp"] = float(self.text_ctrl_Therm_diff_temp.GetValue())
