@@ -25,115 +25,116 @@ FUNCTION BLOCK
 """
 
 def poni2wave(poni):#read a wavelength in angstroms from a .poni calibration file
-	with open(poni) as file:
-		wavelength = [i.split(" ")[1] for i in file if i.split(" ")[0] == "Wavelength:"]
-	return float(wavelength[0])*10000000000
+    with open(poni) as file:
+        wavelength = [i.split()[1] for i in file if i.split()[0] == "Wavelength:"]
+    return float(wavelength[0])*10000000000
 
 def open_dat(filename):#read file with x,y values per line
-	with open(filename) as dat:
-		temp = [i.split(" ") for i in dat]
-		for i in temp:
-			i[0] = float(i[0])
-			i[1] = float(i[1])
-		out = [i for i in temp]
-	return out
+    with open(filename) as dat:
+        temp = [i.split(" ") for i in dat]
+        for i in temp:
+            i[0] = float(i[0])
+            i[1] = float(i[1])
+        out = [i for i in temp]
+    return out
 
 def data2slices(data_2theta, theta_peak_guess, theta_variance): #creates a data slice about each peak position
-	sliced_data = []
-	for i in theta_peak_guess:
-		# we can assume a peak will never lie on a datum, so we take the point directly above and below the peak, add theta_variance peaks on either side
-		nearest_below = [xy for xy in data_2theta if xy[0] < i][-1]
-		nearest_above = [xy for xy in data_2theta if xy[0] > i][0]
-		lower_half_slice = data_2theta[data_2theta.index(nearest_below)-theta_variance:data_2theta.index(nearest_below)]
-		upper_half_slice = data_2theta[data_2theta.index(nearest_above):data_2theta.index(nearest_above)+theta_variance]
-		data_slice = lower_half_slice + upper_half_slice
-		sliced_data.append(data_slice)
-	return sliced_data
+    sliced_data = []
+    for i in theta_peak_guess:
+        # we can assume a peak will never lie on a datum, so we take the point directly above and below the peak, add theta_variance peaks on either side
+        nearest_below = [xy for xy in data_2theta if xy[0] < i][-1]
+        nearest_above = [xy for xy in data_2theta if xy[0] > i][0]
+        lower_half_slice = data_2theta[data_2theta.index(nearest_below)-theta_variance:data_2theta.index(nearest_below)]
+        upper_half_slice = data_2theta[data_2theta.index(nearest_above):data_2theta.index(nearest_above)+theta_variance]
+        data_slice = lower_half_slice + upper_half_slice
+        sliced_data.append(data_slice)
+    return sliced_data
 
 def gauss(x, amp, cen, sigma, shift):#basic gaussian function
-	return amp * np.exp(-(x-cen)**2 / (2.*sigma**2)) + shift
+    return amp * np.exp(-(x-cen)**2 / (2.*sigma**2)) + shift
 
 def split_model(i, region, gaussian_params, peaks):#takes a data slice and draws a gaussian over the slice 
-	amps = gaussian_params[0:len(peaks)]
-	sigmas = gaussian_params[len(peaks):(2*len(peaks))]
-	shifts = gaussian_params[2*len(peaks):]
-	peak_pos = peaks[i]
-	amp = amps[i]
-	sigma = sigmas[i]
-	shift = shifts[i]
+    amps = gaussian_params[0:len(peaks)]
+    sigmas = gaussian_params[len(peaks):(2*len(peaks))]
+    shifts = gaussian_params[2*len(peaks):]
+    peak_pos = peaks[i]
+    amp = amps[i]
+    sigma = sigmas[i]
+    shift = shifts[i]
 
-	x_values = [xy[0] for xy in region]
-	y_obs = [xy[1] for xy in region]
-	y_calc = gauss(x_values, amp, peak_pos, sigma, shift)
-	y_diff = [abs(a - b) for a,b in zip(y_obs, y_calc)]
-	return x_values, y_calc, y_diff
+    x_values = [xy[0] for xy in region]
+    y_obs = [xy[1] for xy in region]
+    y_calc = gauss(x_values, amp, peak_pos, sigma, shift)
+    y_diff = [abs(a - b) for a,b in zip(y_obs, y_calc)]
+    return x_values, y_calc, y_diff
 
 def fit_function(parameters, SG_num, ttheta_max, wavelength, data_file, theta_variance, num_peaks):
     #fitting function for use in LS, requires a 1D array of residuals to be output
-	#get the data into list of [x,y]s
-	data_2theta = open_dat(data_file)
-	
-	#seperate parameters list into gaussian params and lattice params
-	gaussian_params = parameters[0:3*num_peaks]
-	lattice_params = parameters[len(gaussian_params):]
-	
-	#generate peaks in 2theta:
-	material = xu.materials.Crystal("material", xu.materials.SGLattice(int(SG_num), *[float(i) for i in lattice_params]))
-	indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = ttheta_max+5, enable_simulation = False, wl = wavelength).data
-	peak_list = []
-	for key in indexing_info.keys():
-		peak_pos = indexing_info[key]["ang"]*2
-		peak_list.append(peak_pos)
-	peak_list = peak_list[:num_peaks]
-		
-	#cut data into regions about peaks:
-	regions = data2slices(data_2theta, peak_list, theta_variance)
+    #get the data into list of [x,y]s
+    data_2theta = open_dat(data_file)
+    
+    #seperate parameters list into gaussian params and lattice params
+    gaussian_params = parameters[0:3*num_peaks]
+    lattice_params = parameters[len(gaussian_params):]
+    
+    #generate peaks in 2theta:
+    material = xu.materials.Crystal("material", xu.materials.SGLattice(int(SG_num), *[float(i) for i in lattice_params]))
+    indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = ttheta_max+5, enable_simulation = False, wl = wavelength).data
+    peak_list = []
+    for key in indexing_info.keys():
+        peak_pos = indexing_info[key]["ang"]*2
+        peak_list.append(peak_pos)
+    peak_list = peak_list[:num_peaks]
+        
+    #cut data into regions about peaks:
+    regions = data2slices(data_2theta, peak_list, theta_variance)
 
-	#do gaussian model and get difference between y_obs and y_calc for each region
-	residual_total = []
-	for region in regions:
-		i = regions.index(region)
-		x_values, y_calc, y_diff = split_model(i, region, gaussian_params, peak_list)
-		residual_total = residual_total + y_diff
-	return np.array(residual_total)
+    #do gaussian model and get difference between y_obs and y_calc for each region
+    residual_total = []
 
+    for i, region in enumerate(regions):
+        x_values, y_calc, y_diff = split_model(i, region, gaussian_params, peak_list)
+        residual_total.extend(y_diff)
+    
+    return np.array(residual_total)
+    
 def plot_fit_function(parameters, SG_num, ttheta_max, wavelength, data_file, theta_variance, num_peaks):
     #similar to above function but generates a matplotlib figure of a fit
-	#get the data into list of [x,y]s
-	data_2theta = open_dat(data_file)
-	
-	#seperate parameters list into gaussian params and lattice params
-	gaussian_params = parameters[0:3*num_peaks]
-	lattice_params = parameters[len(gaussian_params):]
-	#generate peaks in 2theta:
-	material = xu.materials.Crystal("material", xu.materials.SGLattice(int(SG_num), *[float(i) for i in lattice_params]))
-	indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = ttheta_max+5, enable_simulation = False, wl = wavelength).data
+    #get the data into list of [x,y]s
+    data_2theta = open_dat(data_file)
     
-	peak_list = []
-	for key in indexing_info.keys():
-		peak_pos = indexing_info[key]["ang"]*2
-		peak_list.append(peak_pos)
-	peak_list = peak_list[:num_peaks]
-	#cut data into regions about peaks:
-	regions = data2slices(data_2theta, peak_list, theta_variance)
+    #seperate parameters list into gaussian params and lattice params
+    gaussian_params = parameters[0:3*num_peaks]
+    lattice_params = parameters[len(gaussian_params):]
+    #generate peaks in 2theta:
+    material = xu.materials.Crystal("material", xu.materials.SGLattice(int(SG_num), *[float(i) for i in lattice_params]))
+    indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = ttheta_max+5, enable_simulation = False, wl = wavelength).data
+    
+    peak_list = []
+    for key in indexing_info.keys():
+        peak_pos = indexing_info[key]["ang"]*2
+        peak_list.append(peak_pos)
+    peak_list = peak_list[:num_peaks]
+    #cut data into regions about peaks:
+    regions = data2slices(data_2theta, peak_list, theta_variance)
 
-	#do gaussian model and get difference between y_obs and y_calc for each region
-	
-	fig, ax = plt.subplots(dpi = 100)
-	for region in regions:
-		i = regions.index(region)
-		x_values, y_calc, y_diff = split_model(i, region, gaussian_params, peak_list)
-		ax.scatter([i[0] for i in data_2theta], [i[1] for i in data_2theta], s = 2, color = "k")
-		max_int = max([i[1] for i in data_2theta])
-		ax.plot(x_values, y_calc, color = "r", label = "fit")
-		ax.plot(x_values, [y-(0.1*max_int) for y in y_diff], color = "b", label = "difference")
-		if i == 0:
-			ax.legend()
-		else:
-			pass
-	ax.set_xlabel = "2theta (°)"
-	ax.set_ylabel = "Intensity (arb. units)"
-	return fig
+    #do gaussian model and get difference between y_obs and y_calc for each region
+    
+    fig, ax = plt.subplots(dpi = 100)
+    for region in regions:
+        i = regions.index(region)
+        x_values, y_calc, y_diff = split_model(i, region, gaussian_params, peak_list)
+        ax.scatter([i[0] for i in data_2theta], [i[1] for i in data_2theta], s = 2, color = "k")
+        max_int = max([i[1] for i in data_2theta])
+        ax.plot(x_values, y_calc, color = "r", label = "fit")
+        ax.plot(x_values, [y-(0.1*max_int) for y in y_diff], color = "b", label = "difference")
+        if i == 0:
+            ax.legend()
+        else:
+            pass
+    ax.set_xlabel = "2theta (°)"
+    ax.set_ylabel = "Intensity (arb. units)"
+    return fig
 
 def do_fit(fit_function, params, bounds, SG_num, ttheta_max, wavelength, initial_data_file, theta_variance, num_peaks):
     #wrapper for convienience
