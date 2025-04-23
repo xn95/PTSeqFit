@@ -14,10 +14,10 @@ from xrayutilities.materials.spacegrouplattice import sgrp_name
 import EoS_dictionaries as EoS
 from PVT import BM
 import matplotlib
-matplotlib.use('WXAgg')
-#from matplotlib.figure import Figure
+
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
 from matplotlib.backends.backend_wxagg import NavigationToolbar2WxAgg as NavigationToolbar2Wx
+matplotlib.use('WXAgg')
 import matplotlib.pyplot as plt
 
 """
