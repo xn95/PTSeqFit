@@ -793,7 +793,7 @@ class Main_window(wx.Frame):
         try:
             window_2theta = float(self.text_ctrl_variance.GetValue())#read the GUI input
         except ValueError:
-            self.log.WriteText("Enter a number\n")
+            self.log.WriteText("Fit window not specified\n")
             return None
         data_frame = open_dat(self.loaded_datafiles[0])#load in 1st dataset [[x,y],[x,y]....]
         x_values = [i[0] for i in data_frame]
@@ -824,7 +824,12 @@ class Main_window(wx.Frame):
         if self.wavelength == None:
             self.log.WriteText("Missing wavelength\n")
             return None
-        indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = self.max_2theta, enable_simulation = False, wl = self.wavelength).data
+        #constrain max 2theta to be the GUI value - 1/2 of a data windows width (otherwise a data window may lie outside the data range, breaking the LS)
+        if self.fit_window_size == 0:
+            self.log.WriteText("Fit window not specified\n")
+            return None
+        tt_cutoff = self.max_2theta - (float(self.text_ctrl_variance.GetValue())/2)
+        indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = tt_cutoff, enable_simulation = False, wl = self.wavelength).data
         num_peaks = len(indexing_info.keys())
     #convert the self.gaussian_params object (which is just a list of scale, sigma, shift)
     #into a list of [scale, scale,... sigma, sigma,...  shift, shift,... per number of peaks]
@@ -832,9 +837,7 @@ class Main_window(wx.Frame):
         if any(g == 0  for g in raw_gaussian_params):
             self.log.WriteText("Missing, or zero value gaussian parameters\n")
             return None
-        if self.fit_window_size == 0:
-            self.log.WriteText("Fit window not specified\n")
-            return None
+        
         amps = [raw_gaussian_params[0]] * num_peaks
         sigmas = [raw_gaussian_params[1]] * num_peaks
         shifts = [raw_gaussian_params[2]] * num_peaks
@@ -874,10 +877,8 @@ class Main_window(wx.Frame):
                 #the original error was due to a peak position crossing the 2theta indexing limit
                 #the peak would then be ignored but the gaussian parameters would still be sent to the LS function
                 #the LS function was rewritten to constrain the number of gaussian parameters based on the number of peaks
-                
+                self.log.WriteText("==== WARNING ====\n")
                 self.log.WriteText("Refinement returned input values\n")
-                self.log.WriteText("If fit continues to break at this point, check python console\n")
-                self.log.WriteText("An out of bounds error likely means a peak is crossing the 2theta indexing limit\n")
 
             LS_params = LS_out.x
             out_gauss = LS_out.x[0:num_peaks*3]
