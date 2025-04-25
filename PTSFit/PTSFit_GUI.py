@@ -6,11 +6,13 @@
 
 import wx
 import os
-import xrayutilities as xu
+import xrayutilities.materials as materials
+import xrayutilities.simpack as simpack
+from xrayutilities.materials.spacegrouplattice import sgrp_name
 import numpy as np
 from threading import Thread
 from scipy.optimize import least_squares, Bounds
-from xrayutilities.materials.spacegrouplattice import sgrp_name
+
 import EoS_dictionaries as EoS
 from PVT import BM
 import matplotlib
@@ -78,8 +80,8 @@ def fit_function(parameters, SG_num, ttheta_max, wavelength, data_file, theta_va
     lattice_params = parameters[len(gaussian_params):]
     
     #generate peaks in 2theta:
-    material = xu.materials.Crystal("material", xu.materials.SGLattice(int(SG_num), *[float(i) for i in lattice_params]))
-    indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = ttheta_max+5, enable_simulation = False, wl = wavelength).data
+    material = materials.Crystal("material", materials.SGLattice(int(SG_num), *[float(i) for i in lattice_params]))
+    indexing_info = simpack.PowderDiffraction(material, tt_cutoff = ttheta_max+5, enable_simulation = False, wl = wavelength).data
     peak_list = []
     for key in indexing_info.keys():
         peak_pos = indexing_info[key]["ang"]*2
@@ -107,8 +109,8 @@ def plot_fit_function(parameters, SG_num, ttheta_max, wavelength, data_file, the
     gaussian_params = parameters[0:3*num_peaks]
     lattice_params = parameters[len(gaussian_params):]
     #generate peaks in 2theta:
-    material = xu.materials.Crystal("material", xu.materials.SGLattice(int(SG_num), *[float(i) for i in lattice_params]))
-    indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = ttheta_max+5, enable_simulation = False, wl = wavelength).data
+    material = materials.Crystal("material", materials.SGLattice(int(SG_num), *[float(i) for i in lattice_params]))
+    indexing_info = simpack.PowderDiffraction(material, tt_cutoff = ttheta_max+5, enable_simulation = False, wl = wavelength).data
     
     peak_list = []
     for key in indexing_info.keys():
@@ -138,13 +140,13 @@ def plot_fit_function(parameters, SG_num, ttheta_max, wavelength, data_file, the
 
 def cif2material(cif_path):
     #takes .cif and uses xu to generate a lattice
-    material = xu.materials.Crystal.fromCIF(cif_path)
+    material = materials.Crystal.fromCIF(cif_path)
     SGLattice_object = material.lattice
     return material, SGLattice_object
 
 def SG_lattice_params2material(SG_num, in_lattice_params):
     #similar to aboce but uses a list of lattice parameters and a SG number to generate an object for indexing
-    material = xu.materials.Crystal("material", xu.materials.SGLattice(int(SG_num), *[float(i) for i in in_lattice_params]))
+    material = materials.Crystal("material", materials.SGLattice(int(SG_num), *[float(i) for i in in_lattice_params]))
     SGLattice_object = material.lattice
     return material, SGLattice_object
 
@@ -215,9 +217,6 @@ class Main_window(wx.Frame):
         kwds["style"] = kwds.get("style", 0) | wx.DEFAULT_FRAME_STYLE
         wx.Frame.__init__(self, *args, **kwds)
         self.SetTitle("PTSFit - Pressure, Temperature from Sequential Fits")
-        icon = wx.EmptyIcon()
-        icon.CopyFromBitmap(wx.Bitmap("icon.ico", wx.BITMAP_TYPE_ANY))
-        self.SetIcon(icon)
         self.panel_1 = wx.Panel(self, wx.ID_ANY)
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -845,7 +844,7 @@ class Main_window(wx.Frame):
             self.log.WriteText("Fit window not specified\n")
             return None
         tt_cutoff = self.max_2theta - (float(self.text_ctrl_variance.GetValue())/2)
-        indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = tt_cutoff, enable_simulation = False, wl = self.wavelength).data
+        indexing_info = simpack.PowderDiffraction(material, tt_cutoff = tt_cutoff, enable_simulation = False, wl = self.wavelength).data
         num_peaks = len(indexing_info.keys())
     #convert the self.gaussian_params object (which is just a list of scale, sigma, shift)
     #into a list of [scale, scale,... sigma, sigma,...  shift, shift,... per number of peaks]
@@ -887,7 +886,8 @@ class Main_window(wx.Frame):
                                     self.wavelength, 
                                     frame, 
                                     int(self.fit_window_size), 
-                                    num_peaks])
+                                    num_peaks]
+                                    )
             except:
                 self.log.WriteText("==== ERROR IN LEAST SQUARES ====\nConsidering changing starting parameters, reducing maximum 2theta for indexing, or the fitting window\n")
                 break
@@ -1189,8 +1189,8 @@ class PopMenu(wx.Menu):
                 crystal_params = crystal_params.split(" ")
                 crystal_params = [float(x) for x in crystal_params if x != ""]
         parameters = gauss_params + crystal_params
-        material = xu.materials.Crystal("material", xu.materials.SGLattice(int(self.parent.SG_num), *[float(i) for i in crystal_params]))
-        indexing_info = xu.simpack.PowderDiffraction(material, tt_cutoff = self.parent.max_2theta, enable_simulation = False, wl = self.parent.wavelength).data
+        material = materials.Crystal("material", materials.SGLattice(int(self.parent.SG_num), *[float(i) for i in crystal_params]))
+        indexing_info = simpack.PowderDiffraction(material, tt_cutoff = self.parent.max_2theta, enable_simulation = False, wl = self.parent.wavelength).data
         num_peaks = len(indexing_info.keys())
         fig = plot_fit_function(parameters, self.parent.SG_num, self.parent.max_2theta, self.parent.wavelength, data_path, int(self.parent.fit_window_size),num_peaks)
         self.parent.spawn_plot(fig, name = str("Fit for "+item))
@@ -1626,6 +1626,8 @@ class MyApp(wx.App):
         self.frame = Main_window(None, wx.ID_ANY, "")
         self.SetTopWindow(self.frame)
         self.frame.Show()
+        icon = wx.Icon(name = "_internal\icon.ico", type = wx.BITMAP_TYPE_ICO)
+        self.frame.SetIcon(icon)
         return True
 
 # end of class MyApp
