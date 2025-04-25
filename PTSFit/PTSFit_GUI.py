@@ -136,11 +136,6 @@ def plot_fit_function(parameters, SG_num, ttheta_max, wavelength, data_file, the
     ax.set_ylabel = "Intensity (arb. units)"
     return fig
 
-def do_fit(fit_function, params, bounds, SG_num, ttheta_max, wavelength, initial_data_file, theta_variance, num_peaks):
-    #wrapper for convienience
-    out = least_squares(fit_function, params, bounds = bounds, args = (SG_num, ttheta_max, wavelength, initial_data_file, theta_variance, num_peaks))
-    return out
-
 def cif2material(cif_path):
     #takes .cif and uses xu to generate a lattice
     material = xu.materials.Crystal.fromCIF(cif_path)
@@ -199,6 +194,16 @@ def generate_LSparams(gauss_params, lattice_params):
     upper_bounds = [np.inf for i in initial_params]
     bounds = Bounds(lb = lower_bounds, ub = upper_bounds)
     return initial_params, bounds,
+
+class thread_with_result(Thread):
+    def run(self):
+        try:
+            if self._target is not None:
+                self.result = self._target(*self._args, **self._kwargs)
+        finally:
+            # Avoid a refcycle if the thread is running a function with
+            # an argument that has a member that points to the thread.
+            del self._target, self._args, self._kwargs
 
 """
 GUI BLOCK
@@ -471,7 +476,7 @@ class Main_window(wx.Frame):
         self.Bind(wx.EVT_TEXT, self.input_max_ttheta, self.text_ctrl_max_2theta)
         self.Bind(wx.EVT_TEXT, self.fit_final_num_in, self.text_ctrl_final_file_num)
         #self.Bind(wx.EVT_BUTTON, self.do_seq_fit, self.button_do_seq_fit) <-- if not using threading
-        self.Bind(wx.EVT_BUTTON, self.do_seq_threaded, self.button_do_seq_fit)
+        self.Bind(wx.EVT_BUTTON, self.do_seq_fit, self.button_do_seq_fit)
         self.Bind(wx.EVT_TEXT, self.wavelength_input, self.text_ctrl_wavelength)
         self.Bind(wx.EVT_COMBOBOX, self.calibrant_load, self.CB_select_EoS_params)
         self.Bind(wx.EVT_BUTTON, self.do_PVT, self.btn_do_PVT)
@@ -803,6 +808,17 @@ class Main_window(wx.Frame):
         window_datapoints = int(len(data_window)/2)
         self.fit_window_size = window_datapoints
          
+    def do_fit(self, fit_function, params, bounds, SG_num, ttheta_max, wavelength, initial_data_file, theta_variance, num_peaks):
+    #wrapper for convienience
+        SG_num = SG_num
+        ttheta_max = ttheta_max
+        wavelength = wavelength
+        initial_data_file = initial_data_file
+        theta_variance = theta_variance
+        num_peaks = num_peaks
+        out = least_squares(fit_function, params, bounds = bounds, args = (SG_num, ttheta_max, wavelength, initial_data_file, theta_variance, num_peaks))
+        return out
+
     def do_seq_fit(self, event):  # the sequential fitting loop
     
     #list of datafiles:
@@ -849,6 +865,10 @@ class Main_window(wx.Frame):
             file.write("Filepath, Lattice parameters\n")
             file.close()
         #now the cyclic mode starts
+        #need to write as an individual function to maintain threading, lest GUI is unresponsive
+        self.log.WriteText("==== WARNING: ===="+"\n")
+        self.log.WriteText("==== GUI may become unresponsive if window is unfocused ===="+"\n")
+        self.log.WriteText("Program will print progress to python console"+"\n")
         for frame in framelist:
             LS_params = list(gaussian_params)
             for i in lattice_params:
@@ -858,7 +878,8 @@ class Main_window(wx.Frame):
             bounds = Bounds(lb = lower_bounds, ub = upper_bounds)
             #do the LS
             try:
-                LS_out = do_fit(fit_function, 
+                LS_out = self.do_fit_threaded(
+                                    [fit_function, 
                                     LS_params, 
                                     bounds, 
                                     self.SG_num, 
@@ -866,7 +887,7 @@ class Main_window(wx.Frame):
                                     self.wavelength, 
                                     frame, 
                                     int(self.fit_window_size), 
-                                    num_peaks)
+                                    num_peaks])
             except:
                 self.log.WriteText("==== ERROR IN LEAST SQUARES ====\nConsidering changing starting parameters, reducing maximum 2theta for indexing, or the fitting window\n")
                 break
@@ -937,10 +958,12 @@ class Main_window(wx.Frame):
             self.Update()
             #the GUI will be non responsive while this loops
             
-    def do_seq_threaded(self,event):
+    def do_fit_threaded(self,args):
         #opens new thread to keep GUI updating... but GUI still goes non-responsive if window is unfocused
-        t = Thread(target=self.do_seq_fit, args=[event])
+        t = thread_with_result(target=self.do_fit, args = args)
         t.run()
+        #t.join()
+        return t.result
 
     def calibrant_load(self, event): #which inbuilt material to pass to PVT
         self.loaded_calibrant = self.CB_select_EoS_params.GetValue()
@@ -997,6 +1020,8 @@ class Main_window(wx.Frame):
             temperature = [i["T (K)"] for i in self.refined_datasets if i["filename"] == item][0]
             if pressure == None and temperature == None:
                 self.log.WriteText("Missing P or T for list object: "+str(item)+"\n")
+            if pressure != None and temperature != None:
+                self.log.WriteText("P or T already given for list object: "+str(item)+"\n")
             if pressure != None:
                 PVT_table[0] = float(pressure)
             if volume != None:
@@ -1004,7 +1029,11 @@ class Main_window(wx.Frame):
             if temperature != None:
                 PVT_table[2] = float(temperature)
             #Do PVT calc
-            PVT_object_out = BM(self.selected_EoS_dict, PVT_table)
+            if PVT_table.count(None) == 1:
+                PVT_object_out = BM(self.selected_EoS_dict, PVT_table)
+            else:
+                self.log.WriteText("Incomplete variables for PVT determination\n")
+                break
             #update GUI
             P_out = PVT_object_out.P
             T_out = PVT_object_out.T
