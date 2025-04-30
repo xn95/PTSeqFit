@@ -104,7 +104,6 @@ def plot_fit_function(parameters, SG_num, ttheta_max, wavelength, data_file, the
     #similar to above function but generates a matplotlib figure of a fit
     #get the data into list of [x,y]s
     data_2theta = open_dat(data_file)
-    
     #seperate parameters list into gaussian params and lattice params
     gaussian_params = parameters[0:3*num_peaks]
     lattice_params = parameters[len(gaussian_params):]
@@ -1189,8 +1188,9 @@ class PopMenu(wx.Menu):
                 crystal_params = crystal_params.split(" ")
                 crystal_params = [float(x) for x in crystal_params if x != ""]
         parameters = gauss_params + crystal_params
+        tt_cutoff = self.parent.max_2theta - (float(self.parent.text_ctrl_variance.GetValue())/2)
         material = materials.Crystal("material", materials.SGLattice(int(self.parent.SG_num), *[float(i) for i in crystal_params]))
-        indexing_info = simpack.PowderDiffraction(material, tt_cutoff = self.parent.max_2theta, enable_simulation = False, wl = self.parent.wavelength).data
+        indexing_info = simpack.PowderDiffraction(material, tt_cutoff = tt_cutoff, enable_simulation = False, wl = self.parent.wavelength).data
         num_peaks = len(indexing_info.keys())
         fig = plot_fit_function(parameters, self.parent.SG_num, self.parent.max_2theta, self.parent.wavelength, data_path, int(self.parent.fit_window_size),num_peaks)
         self.parent.spawn_plot(fig, name = str("Fit for "+item))
