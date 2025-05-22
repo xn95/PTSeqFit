@@ -824,7 +824,7 @@ class Main_window(wx.Frame):
         if framelist ==[]:
             self.log.WriteText("No datafiles loaded\n")
             return None
-        self.gauge_1.SetRange(len(framelist))
+        
         counter = int(0)
     #do indexing in order to determine number of peaks which is needed to create list of gaussians:
         #create local variable of lattice_params
@@ -867,7 +867,8 @@ class Main_window(wx.Frame):
         self.log.WriteText("==== WARNING: ===="+"\n")
         self.log.WriteText("==== GUI may become unresponsive if window is unfocused ===="+"\n")
         self.log.WriteText("Program will print progress to python console"+"\n")
-        for frame in framelist:
+        self.gauge_1.SetRange(len(framelist[:self.max_dataframe]))
+        for frame in framelist[:self.max_dataframe]:
             LS_params = list(gaussian_params)
             for i in lattice_params:
                 LS_params.append(i)
