@@ -156,13 +156,13 @@ def SG_lattice_object_read(SGLattice_object):
         lattice_params = [SGLattice_object.a]
 
     if SGLattice_object.crystal_system == "hexagonal":
-        lattice_params = [SGLattice_object.a, SGLattice_object.b]
+        lattice_params = [SGLattice_object.a, SGLattice_object.c]
         
     if SGLattice_object.crystal_system == "trigonal":
-        lattice_params = [SGLattice_object.a, SGLattice_object.b]
+        lattice_params = [SGLattice_object.a, SGLattice_object.c]
         
     if SGLattice_object.crystal_system == "tetragonal":
-        lattice_params = [SGLattice_object.a, SGLattice_object.b]
+        lattice_params = [SGLattice_object.a, SGLattice_object.c]
 
     if SGLattice_object.crystal_system == "orthorhombic":
         lattice_params = [SGLattice_object.a, SGLattice_object.b, SGLattice_object.c]
